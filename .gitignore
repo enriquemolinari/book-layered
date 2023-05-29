@@ -1,0 +1,7 @@
+/bin/
+/target/
+.settings
+.project
+mem.log
+mem.properties
+mem.script
