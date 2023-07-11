@@ -18,10 +18,14 @@
 
 			<property name="hibernate.dialect"
 				value="org.hibernate.dialect.HSQLDialect" />
+				
+			<property name="jakarta.persistence.create-database-schemas" value="true" />
 
+<!--  			<property name="hibernate.default_schema" value="blabla"/>  -->
 			<property name="hibernate.hbm2ddl.auto" value="create" />
-
-			<property name="hibernate.format_sql" value="true" />
+			<property name="hibernate.show_sql" value="true"/>
+			<property name="hibernate.format_sql" value="true" />			
+			<property name="hibernate.jdbc.batch_size" value="20" />
 		</properties>
 	</persistence-unit>
 </persistence>
