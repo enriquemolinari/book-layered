@@ -37,7 +37,7 @@ public class Rating {
     this.totalValue = totalValue;
   }
 
-  public void vote(int userValue) {
+  public void calculateNewRate(int userValue) {
     this.value = (this.totalValue + userValue) / (totalVotes + 1);
     this.totalValue += userValue;
     this.totalVotes++;

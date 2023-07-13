@@ -1,6 +1,9 @@
 package layered.data.services;
 
+import java.util.List;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
+import jakarta.persistence.LockModeType;
 import layered.data.api.DataException;
 import layered.data.api.RatingData;
 import layered.data.api.RatingDataService;
@@ -18,81 +21,30 @@ public class JpaRatingDataService implements RatingDataService {
   }
 
   @Override
-  public void rate(Long idUser, Long idMovie, int userValue, String comment) {
-    checkUserHasAlreadyRated(idUser, idMovie);
-
-    // insert into ratind details
-    // [value, totalVotes] = actualRating(idmovie);
-    // newValue = (actualvalue + uservalue) / (totalVotes + 1)
-    // update o insert
-
+  public void rate(Long idUser, Long idMovie, int valueAssigned,
+      String comment) {
     var em = emf.createEntityManager();
     var tx = em.getTransaction();
 
+    var movie = em.getReference(Movie.class, idMovie);
+    var user = em.getReference(User.class, idUser);
+
     try {
       tx.begin();
-      var movie = em.getReference(Movie.class, idMovie);
-      var user = em.getReference(User.class, idUser);
 
-      // TODO: esto deberia lockear... Verificar que solo lockeo esta pelicula.
-      var q = em.createQuery("from Rating r where r.movie.id = :idmovie",
-          Rating.class);
-      q.setParameter("idmovie", idMovie);
+      var ratingList = ratingForMovie(idMovie, em);
 
-      em.persist(new RatingDetail(movie, user, comment, userValue));
+      checkUserHasAlreadyRated(idUser, idMovie);
 
-      var ratingList = q.getResultList();
-      if (ratingList.size() == 0) {
-        em.persist(new Rating(movie, userValue, 1, userValue));
-      } else {
-        Rating r = ratingList.get(0);
-        r.vote(userValue);
-      }
+      saveNewRating(valueAssigned, comment, em, movie, user, ratingList);
+
       tx.commit();
     } catch (Exception e) {
       tx.rollback();
+      throw e;
     } finally {
       em.close();
     }
-
-
-
-    // jdbi.useTransaction(handle -> {
-    // // there should be a lock here to make this work properly
-    // // I will leave this without implemented it properly as it is not the purpose of this code
-    // // reader: remember that locking using 'for update' does not work when use agregation functions
-    // var actualValues = handle
-    // .createQuery(
-    // "SELECT SUM(value) as total_sum, count(value) as total_count "
-    // + "from rating_detail where id_movie = :idmovie")
-    // .bind("idmovie", idMovie).mapToMap().one();
-    //
-    // handle.createUpdate(
-    // "INSERT INTO rating_detail(id_movie, id_user, value, comment, created_at) "
-    // + "values(:idmovie, :iduser, :value, :comment, :date)")
-    // .bind("idmovie", idMovie).bind("iduser", idUser).bind("value", value)
-    // .bind("comment", comment).bind("date", LocalDateTime.now()).execute();
-    //
-    // var existARate = handle
-    // .createQuery(
-    // "SELECT 1 as exist_rate from rating where id_movie = :idmovie")
-    // .bind("idmovie", idMovie).mapTo(Integer.class).findOne();
-    //
-    // existARate.ifPresentOrElse((p) -> {
-    // var newValue = ((new BigDecimal((Long) actualValues.get("total_sum")))
-    // .add(new BigDecimal(value))).floatValue()
-    // / ((Long) actualValues.get("total_count") + 1);
-    //
-    // handle
-    // .createUpdate(
-    // "UPDATE rating set value = :newvalue where id_movie = :idmovie")
-    // .bind("idmovie", idMovie).bind("newvalue", newValue).execute();
-    // }, () -> {
-    // handle.createUpdate(
-    // "INSERT INTO rating (id_movie, value) values(:idmovie, :initialValue)")
-    // .bind("idmovie", idMovie).bind("initialValue", value).execute();
-    // });
-    // });
   }
 
   @Override
@@ -142,4 +94,30 @@ public class JpaRatingDataService implements RatingDataService {
       }
     }
   }
+
+  private void saveNewRating(int valueAssigned, String comment,
+      EntityManager em, Movie movie, User user, List<Rating> ratingList) {
+    // save ratingDetail for user
+    em.persist(new RatingDetail(movie, user, comment, valueAssigned));
+
+    if (ratingList.size() == 0) {
+      // ratingList == 0 means this is the first vote for the movie
+      em.persist(new Rating(movie, valueAssigned, 1, valueAssigned));
+    } else {
+      // there is a rate for this movie, calculate the new value
+      ratingList.get(0).calculateNewRate(valueAssigned);
+    }
+  }
+
+  private List<Rating> ratingForMovie(Long idMovie, EntityManager em) {
+    var ratingQuery = em
+        .createQuery("from Rating r where r.movie.id = :idmovie", Rating.class);
+    ratingQuery.setParameter("idmovie", idMovie);
+
+    // locking to prevent race conditions during voting transaction
+    ratingQuery.setLockMode(LockModeType.PESSIMISTIC_WRITE);
+    var ratingList = ratingQuery.getResultList();
+    return ratingList;
+  }
+
 }
